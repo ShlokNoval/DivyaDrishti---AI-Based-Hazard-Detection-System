@@ -1,0 +1,7 @@
+
+path: D:\ieee_hackathon_github\DivyaDrishti---AI-Based-Hazard-Detection-System\AI_Engine\yolo_pothole_dataset
+train: images/train
+val: images/val
+
+names:
+  0: pothole

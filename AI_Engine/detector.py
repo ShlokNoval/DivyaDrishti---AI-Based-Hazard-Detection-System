@@ -2,16 +2,37 @@ import cv2
 import numpy as np
 import base64
 from datetime import datetime
+import torch
 from ultralytics import YOLO
+from ultralytics.nn.tasks import DetectionModel
 from config import (
     CONF_THRESHOLD,
     CONF_THRESHOLD_NIGHT,
-    NMS_THRESHOLD
+    NMS_THRESHOLD,
+    POTHOLE_MODEL_PATH
 )
+
+# Fix for PyTorch 2.6+ WeightsUnpickler error (Monkeypatching)
+import torch
+_original_load = torch.load
+def _hooked_load(*args, **kwargs):
+    if 'weights_only' not in kwargs:
+        kwargs['weights_only'] = False
+    return _original_load(*args, **kwargs)
+torch.load = _hooked_load
 
 class Detector:
     def __init__(self, model_path, night_mode=False):
         self.model = YOLO(model_path)
+        self.pothole_model = None
+        import os
+        if os.path.exists(POTHOLE_MODEL_PATH):
+            try:
+                self.pothole_model = YOLO(POTHOLE_MODEL_PATH)
+                print(f"Loaded dedicated pothole model from {POTHOLE_MODEL_PATH}")
+            except Exception as e:
+                print(f"Failed to load pothole model: {e}")
+                
         self.night_mode = night_mode
         self.conf_threshold = CONF_THRESHOLD_NIGHT if night_mode else CONF_THRESHOLD
         
@@ -69,41 +90,53 @@ class Detector:
         results = self.model(frame, conf=self.conf_threshold, iou=NMS_THRESHOLD, verbose=False)
         detections = []
         
-        if not results:
-            return detections
-            
-        result = results[0]
         img_h, img_w = frame.shape[:2]
         
-        for box in result.boxes:
-            conf = float(box.conf[0])
-            if conf < self.conf_threshold:
-                continue
+        def process_results(results_obj, default_class_name=None):
+            if not results_obj:
+                return
+            result = results_obj[0]
+            for box in result.boxes:
+                conf = float(box.conf[0])
+                if conf < self.conf_threshold:
+                    continue
+                    
+                class_id = int(box.cls[0])
                 
-            class_id = int(box.cls[0])
-            class_name = self.model.names[class_id]
-            
-            # Extract xyxy and convert to normalized xywh format manually to ensure pure math matching the doc
-            x1, y1, x2, y2 = map(float, box.xyxy[0])
-            
-            x, y = x1, y1
-            w, h = x2 - x1, y2 - y1
-            
-            x_norm = x / img_w
-            y_norm = y / img_h
-            w_norm = w / img_w
-            h_norm = h / img_h
-            
-            area_norm = (w * h) / (img_w * img_h)
-            
-            detections.append({
-                'class_name': class_name,
-                'class_id': class_id,
-                'confidence': conf,
-                'bbox': [x, y, w, h],         # top-left x, y and width, height
-                'bbox_norm': [x_norm, y_norm, w_norm, h_norm],
-                'area_norm': area_norm
-            })
+                # If we have a dedicated class name (like from the pothole model), use it.
+                if default_class_name:
+                    class_name = default_class_name
+                else:
+                    class_name = result.names[class_id]
+                
+                # Extract xyxy and convert to normalized xywh format manually to ensure pure math matching the doc
+                x1, y1, x2, y2 = map(float, box.xyxy[0])
+                
+                x, y = x1, y1
+                w, h = x2 - x1, y2 - y1
+                
+                x_norm = x / img_w
+                y_norm = y / img_h
+                w_norm = w / img_w
+                h_norm = h / img_h
+                
+                area_norm = (w * h) / (img_w * img_h)
+                
+                detections.append({
+                    'class_name': class_name,
+                    'class_id': class_id,
+                    'confidence': conf,
+                    'bbox': [x, y, w, h],         # top-left x, y and width, height
+                    'bbox_norm': [x_norm, y_norm, w_norm, h_norm],
+                    'area_norm': area_norm
+                })
+
+        process_results(results)
+        
+        # If pothole model is loaded, run it as well
+        if self.pothole_model:
+            pothole_results = self.pothole_model(frame, conf=self.conf_threshold, iou=NMS_THRESHOLD, verbose=False)
+            process_results(pothole_results, default_class_name='pothole')
             
         return detections
 
