@@ -8,15 +8,17 @@ class AnimalEngine:
         self.projection_horizon = projection_horizon
 
     def compute_trajectory_vector(self, centroid_history: list) -> tuple:
-        """ Calculates the (dx, dy) vector per frame based on the last two centroids. """
+        """ Calculates the smoothed (dx, dy) directional vector per frame across recent centroids. """
         if not centroid_history or len(centroid_history) < 2:
             return (0.0, 0.0)
             
-        c1 = centroid_history[-2]
-        c2 = centroid_history[-1]
+        recent = centroid_history[-min(5, len(centroid_history)):]
+        c1 = recent[0]
+        c2 = recent[-1]
+        steps = len(recent) - 1
         
-        dx = c2[0] - c1[0]
-        dy = c2[1] - c1[1]
+        dx = (c2[0] - c1[0]) / steps
+        dy = (c2[1] - c1[1]) / steps
         return (dx, dy)
 
     def classify_behavior_and_predict(self, centroid: tuple, velocity_px: float, centroid_history: list, road_boundary_polygon: list) -> tuple:

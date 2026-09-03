@@ -37,16 +37,22 @@ class AIPipeline:
         # 1. Detection
         detections = self.detector.detect(frame)
         
-        # 2. Tracking 
-        track_objects = self.tracker.update(detections)
-        
-        # Build enriched detections combining YOLO metadata with tracker persistent IDs
-        enriched_detections = []
-        
         VEHICLE_CLASSES = frozenset({'car', 'truck', 'motorcycle', 'bus', 'bicycle', 'train', 'boat'})
         ANIMAL_CLASSES  = frozenset({'dog', 'cat', 'cow', 'horse', 'sheep', 'bird', 'bear', 'elephant', 'zebra', 'giraffe'})
         PERSON_CLASSES  = frozenset({'person'})
         EXCLUDE_FROM_ALIAS = VEHICLE_CLASSES | PERSON_CLASSES | ANIMAL_CLASSES
+        
+        # Pre-filter candidate detections for tracker to prevent 5% noise from spawning tracks
+        track_candidates = [
+            d for d in detections
+            if d['confidence'] >= 0.25 or d['class_name'] not in EXCLUDE_FROM_ALIAS
+        ]
+        
+        # 2. Tracking 
+        track_objects = self.tracker.update(track_candidates)
+        
+        # Build enriched detections combining YOLO metadata with tracker persistent IDs
+        enriched_detections = []
         
         # Collect vehicle bounding boxes so we can do a spatial overlap check
         vehicle_bboxes = [d['bbox'] for d in detections if d['class_name'] in VEHICLE_CLASSES]
@@ -85,29 +91,16 @@ class AIPipeline:
                 
             det['track_id'] = mapped_track_id
             det['velocity_px'] = velocity_px
-            
-            # --- POTHOLE ALIAS (RESTORED FRIEND'S LOGIC) ---
-            # Alias low-confidence, stationary, road-surface objects as potholes.
-            # This is strictly piped ONLY into the Pothole Engine.
-            if (det['confidence'] < 0.26
-                    and det['velocity_px'] < 3.0
-                    and det['class_name'] not in EXCLUDE_FROM_ALIAS
-                    and not overlaps_vehicle(det['bbox'])):
-                x, y, w, h = det['bbox']
-                if y > img_h * 0.30:   # Friend's original zone
-                    det['class_name'] = 'pothole'
-                    det['confidence'] = 0.85
-                    det['area_norm'] = 0.7
-            
             det['class'] = det['class_name']
             enriched_detections.append(det)
 
         # -----------------------------------------------------------------------
-        # ISOLATED ENGINE CONFIDENCE THRESHOLDS (FRIEND'S SENSITIVITY)
+        # ISOLATED ENGINE CONFIDENCE THRESHOLDS
         # -----------------------------------------------------------------------
-        VEHICLE_MIN_CONF = 0.40   
-        PERSON_MIN_CONF  = 0.40   
-        ANIMAL_MIN_CONF  = 0.30   
+        VEHICLE_MIN_CONF = 0.35   
+        PERSON_MIN_CONF  = 0.35   
+        ANIMAL_MIN_CONF  = 0.28   
+        POTHOLE_MIN_CONF = 0.28
 
         # Trusted-class filtered views — only real, confident detections
         trusted_vehicles = [
@@ -124,7 +117,7 @@ class AIPipeline:
         ]
         trusted_potholes = [
             d for d in enriched_detections
-            if d['class'] == 'pothole'
+            if d['class'] == 'pothole' and d['confidence'] >= POTHOLE_MIN_CONF
         ]
 
         # Accident engine receives ONLY trusted vehicles + persons, not noise
@@ -172,12 +165,16 @@ class AIPipeline:
         accident_result['bbox'] = accident_bbox
         accident_result['confidence'] = accident_conf
 
-        # Only alert for accidents if MULTIPLE trusted vehicles are present.
-        # trusted_vehicles already filtered to conf >= 0.40, so ghost detections
-        # cannot inflate this count.
-        has_multiple_vehicles = len(trusted_vehicles) >= 2
+        # Robust Accident Condition Evaluation:
+        # Trigger alert for vehicle collisions, vehicle-pedestrian hits, hit-and-runs, motion anomalies, or high severity scores
+        has_vehicle_collision = (len(trusted_vehicles) >= 2 and accident_result['collision_detected'])
+        has_vehicle_pedestrian = (len(trusted_vehicles) >= 1 and len(trusted_persons) >= 1 and accident_result['severity_score'] >= 25.0)
+        has_motion_anomaly = (accident_result['M_anomaly'] > 0.35 or accident_result['sudden_stop_detected'] or hit_and_run_detected)
+        has_high_severity = (accident_result['severity_score'] >= 30.0 and len(trusted_vehicles) >= 1)
 
-        if (has_multiple_vehicles and 
+        is_accident_triggered = (has_vehicle_collision or has_vehicle_pedestrian or has_motion_anomaly or has_high_severity)
+
+        if (is_accident_triggered and 
             self.accident_engine.should_alert(accident_result['severity_label']) and
             not self.accident_engine._is_duplicate_incident(camera_id, accident_bbox, frame_num)):
             

@@ -21,6 +21,8 @@ const CHART_COLORS = {
   critical: "#9f1239",  // Deep Rose
 }
 
+import { wsService } from "@/lib/websocket"
+
 export function AnalyticsCharts() {
   const [data, setData] = useState<AnalyticsSummary | null>(null)
   const { theme } = useTheme()
@@ -43,7 +45,20 @@ export function AnalyticsCharts() {
   }
 
   useEffect(() => {
-    getAnalyticsSummary().then(setData).catch(console.error)
+    const fetchData = () => {
+      getAnalyticsSummary().then(setData).catch(console.error)
+    }
+    fetchData()
+
+    wsService.connect()
+    const handleAlert = () => {
+      fetchData()
+    }
+    wsService.subscribeToAlerts(handleAlert)
+
+    return () => {
+      wsService.unsubscribeFromAlerts()
+    }
   }, [])
 
   if (!data) {

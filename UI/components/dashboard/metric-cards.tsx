@@ -5,6 +5,8 @@ import { AnalyticsSummary } from "@/lib/types"
 import { getAnalyticsSummary } from "@/lib/api"
 import { Skeleton } from "@/components/ui/skeleton"
 
+import { wsService } from "@/lib/websocket"
+
 export function MetricCards() {
   const [data, setData] = useState<AnalyticsSummary | null>(null)
 
@@ -13,8 +15,18 @@ export function MetricCards() {
       getAnalyticsSummary().then(setData).catch(console.error)
     }
     fetchData()
-    const interval = setInterval(fetchData, 5000)
-    return () => clearInterval(interval)
+    const interval = setInterval(fetchData, 4000)
+
+    wsService.connect()
+    const handleAlert = () => {
+      fetchData()
+    }
+    wsService.subscribeToAlerts(handleAlert)
+
+    return () => {
+      clearInterval(interval)
+      wsService.unsubscribeFromAlerts()
+    }
   }, [])
 
   if (!data) {

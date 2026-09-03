@@ -2,16 +2,30 @@ import collections
 import numpy as np
 from config import DMAX_TRACKING
 
+def get_class_group(class_name: str) -> str:
+    c = str(class_name).lower()
+    if c in {'dog', 'cat', 'cow', 'horse', 'sheep', 'bird', 'bear', 'elephant', 'zebra', 'giraffe', 'animal'}:
+        return 'animal'
+    if c in {'car', 'truck', 'motorcycle', 'bus', 'bicycle', 'train', 'boat', 'vehicle'}:
+        return 'vehicle'
+    if c in {'person'}:
+        return 'person'
+    if c in {'pothole'}:
+        return 'pothole'
+    return c
+
 class CentroidTracker:
-    def __init__(self, D_max=DMAX_TRACKING, max_disappeared=10):
+    def __init__(self, D_max=DMAX_TRACKING, max_disappeared=18):
         self.D_max = D_max
         self.max_disappeared = max_disappeared
         self.next_track_id = 0
         self.objects = {}
         self.disappeared = {}
         self.history = collections.defaultdict(list)
+        self.class_history = collections.defaultdict(list)
 
     def register(self, centroid, det):
+        self.class_history[self.next_track_id].append(det['class_name'])
         self.objects[self.next_track_id] = {
             'centroid': centroid,
             'bbox': det['bbox'],
@@ -22,10 +36,14 @@ class CentroidTracker:
         self.next_track_id += 1
 
     def deregister(self, track_id):
-        del self.objects[track_id]
-        del self.disappeared[track_id]
+        if track_id in self.objects:
+            del self.objects[track_id]
+        if track_id in self.disappeared:
+            del self.disappeared[track_id]
         if track_id in self.history:
             del self.history[track_id]
+        if track_id in self.class_history:
+            del self.class_history[track_id]
 
     def update(self, detections: list) -> dict:
         if len(detections) == 0:
@@ -49,6 +67,14 @@ class CentroidTracker:
             
             D = np.linalg.norm(np.array(object_centroids)[:, np.newaxis] - input_centroids, axis=2)
             
+            # Apply class-group matching penalty to prevent cross-class ID swapping
+            for r, track_id in enumerate(object_ids):
+                obj_group = get_class_group(self.objects[track_id]['class_name'])
+                for c, det in enumerate(detections):
+                    det_group = get_class_group(det['class_name'])
+                    if obj_group != det_group:
+                        D[r, c] += 100000.0  # Massive penalty for different class groups
+
             rows = D.min(axis=1).argsort()
             cols = D.argmin(axis=1)[rows]
 
@@ -58,13 +84,24 @@ class CentroidTracker:
             for (row, col) in zip(rows, cols):
                 if row in used_rows or col in used_cols:
                     continue
-                if D[row, col] > self.D_max:
+                
+                # Dynamic D_max thresholding based on bounding box size
+                bw, bh = detections[col]['bbox'][2], detections[col]['bbox'][3]
+                effective_dmax = max(self.D_max, 0.4 * max(bw, bh))
+
+                if D[row, col] > effective_dmax:
                     continue
 
                 track_id = object_ids[row]
                 self.objects[track_id]['centroid'] = input_centroids[col]
                 self.objects[track_id]['bbox'] = detections[col]['bbox']
-                self.objects[track_id]['class_name'] = detections[col]['class_name']
+                
+                # Record class history and use majority voting to prevent label flickering (e.g. dog <-> cow)
+                self.class_history[track_id].append(detections[col]['class_name'])
+                hist_classes = self.class_history[track_id][-min(10, len(self.class_history[track_id])):]
+                most_frequent_class = max(set(hist_classes), key=hist_classes.count)
+                self.objects[track_id]['class_name'] = most_frequent_class
+                
                 self.disappeared[track_id] = 0
                 self.history[track_id].append(input_centroids[col])
                 
@@ -83,7 +120,7 @@ class CentroidTracker:
             for col in unused_cols:
                 self.register(input_centroids[col], detections[col])
 
-        for track_id in self.objects.keys():
+        for track_id in list(self.objects.keys()):
             self.objects[track_id]['velocity_px'] = self.get_velocity(track_id)
 
         return self.objects
@@ -92,7 +129,11 @@ class CentroidTracker:
         hist = self.history.get(track_id, [])
         if len(hist) < 2:
             return 0.0
-        c1 = hist[-2]
-        c2 = hist[-1]
+        # Use smoothed displacement across up to 5 historical centroids
+        recent = hist[-min(5, len(hist)):]
+        c1 = recent[0]
+        c2 = recent[-1]
+        steps = len(recent) - 1
         dist = np.linalg.norm(np.array(c2) - np.array(c1))
-        return float(dist / frame_interval)
+        return float(dist / (steps * frame_interval))
+

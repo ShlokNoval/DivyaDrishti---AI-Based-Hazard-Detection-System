@@ -7,8 +7,8 @@ load_dotenv()
 # --- MODEL CONSTANTS ---
 MODEL_PATH = os.getenv('MODEL_PATH', 'yolov8n.pt')
 POTHOLE_MODEL_PATH = os.getenv('POTHOLE_MODEL_PATH', 'yolov8_pothole.pt')
-CONF_THRESHOLD = 0.05        # Restored friend's high-sensitivity threshold for alias hacking
-CONF_THRESHOLD_NIGHT = 0.05
+CONF_THRESHOLD = 0.20        # Balanced threshold for clear detection without noise
+CONF_THRESHOLD_NIGHT = 0.15
 NMS_THRESHOLD = 0.45
 
 # --- TRACKING CONSTANTS ---

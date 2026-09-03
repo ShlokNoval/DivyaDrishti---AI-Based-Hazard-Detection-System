@@ -66,7 +66,7 @@ export function DetectionSidebar() {
         </div>
       </div>
 
-      <ScrollArea className="flex-1 px-4 py-2">
+      <div className="flex-1 px-4 py-2 overflow-y-auto overflow-x-hidden custom-scrollbar min-h-0">
         <div className="flex flex-col gap-3 pb-4 pt-3">
           {detections.map((detection, idx) => (
             <div 
@@ -108,7 +108,7 @@ export function DetectionSidebar() {
             </div>
           )}
         </div>
-      </ScrollArea>
+      </div>
     </div>
   )
 }

@@ -26,6 +26,8 @@ const navItems = [
   { title: "System Config", href: "/dashboard/settings", icon: Settings },
 ]
 
+import { wsService } from "@/lib/websocket"
+
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
@@ -34,9 +36,24 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const [recentIncidents, setRecentIncidents] = useState<Incident[]>([])
 
   useEffect(() => {
-    getIncidents().then(data => {
-      setRecentIncidents(data.slice(0, 5))
-    }).catch(console.error)
+    const fetchRecent = () => {
+      getIncidents().then(data => {
+        setRecentIncidents(data.slice(0, 5))
+      }).catch(console.error)
+    }
+
+    fetchRecent()
+
+    wsService.connect()
+    const handleAlert = (newAlert: Incident) => {
+      setRecentIncidents(prev => [newAlert, ...prev.filter(a => a.id !== newAlert.id)].slice(0, 5))
+    }
+
+    wsService.subscribeToAlerts(handleAlert)
+
+    return () => {
+      wsService.unsubscribeFromAlerts()
+    }
   }, [])
 
   const handleSearchSubmit = (e: React.KeyboardEvent) => {

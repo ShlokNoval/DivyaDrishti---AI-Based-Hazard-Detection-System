@@ -1,0 +1,9 @@
+path: D:\Divya-Drishti\DivyaDrishti_final\AI_Engine\yolo_animal_dataset
+train: images/train
+val: images/val
+
+names:
+  0: person
+  1: cat
+  2: dog
+  3: horse
