@@ -14,6 +14,12 @@ const nextConfig: NextConfig = {
           source: '/api/:path*',
           destination: 'http://localhost:8000/api/:path*',
         },
+        // Socket.io polling base path (no trailing segment — initial handshake)
+        {
+          source: '/socket.io',
+          destination: 'http://localhost:8000/socket.io',
+        },
+        // Socket.io with sub-path (session upgrade, etc.)
         {
           source: '/socket.io/:path*',
           destination: 'http://localhost:8000/socket.io/:path*',

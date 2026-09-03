@@ -26,7 +26,7 @@ class AIPipeline:
         self.prev_frames = {}
         self.frame_counts = {}
 
-    def process_frame(self, frame, camera_id="default"):
+    def process_frame(self, frame, camera_id="default", source="live"):
         if camera_id not in self.frame_counts:
             self.frame_counts[camera_id] = 0
             
@@ -88,8 +88,9 @@ class AIPipeline:
             
             # --- POTHOLE ALIAS (RESTORED FRIEND'S LOGIC) ---
             # Alias low-confidence, stationary, road-surface objects as potholes.
-            # This is strictly piped ONLY into the Pothole Engine.
-            if (det['confidence'] < 0.26
+            # Only apply this for uploaded dashcam footage, not live indoor phone streams.
+            if (source == "upload"
+                    and det['confidence'] < 0.26
                     and det['velocity_px'] < 3.0
                     and det['class_name'] not in EXCLUDE_FROM_ALIAS
                     and not overlaps_vehicle(det['bbox'])):

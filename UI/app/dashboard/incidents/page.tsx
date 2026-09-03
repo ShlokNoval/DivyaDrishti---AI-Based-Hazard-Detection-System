@@ -1,5 +1,7 @@
 "use client"
 
+import { Suspense } from "react"
+
 import { useEffect, useState } from "react"
 import { format } from "date-fns"
 import { Incident } from "@/lib/types"
@@ -37,7 +39,7 @@ import { toast } from "sonner"
 import { MessageSquareShare, UserPlus } from "lucide-react"
 import { useSearchParams } from "next/navigation"
 
-export default function IncidentsPage() {
+function IncidentsPageContent() {
   const [incidents, setIncidents] = useState<Incident[]>([])
   const [filtered, setFiltered] = useState<Incident[]>([])
   const [loading, setLoading] = useState(true)
@@ -480,5 +482,13 @@ export default function IncidentsPage() {
       </Dialog>
 
     </div>
+  )
+}
+
+export default function IncidentsPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>}>
+      <IncidentsPageContent />
+    </Suspense>
   )
 }

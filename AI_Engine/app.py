@@ -69,7 +69,8 @@ async def websocket_stream(websocket: WebSocket, camera_id: str):
                     continue
 
                 # Run unifying AI pipeline
-                annotated_frame, all_incidents = pipeline.process_frame(frame, camera_id)
+                source = data.get('source', 'live')
+                annotated_frame, all_incidents = pipeline.process_frame(frame, camera_id, source)
                 
                 # Format image to base64
                 annotated_b64 = pipeline.detector.frame_to_base64(annotated_frame)

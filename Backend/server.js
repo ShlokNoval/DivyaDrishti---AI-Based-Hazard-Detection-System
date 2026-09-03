@@ -21,7 +21,12 @@ const httpServer = createServer(app);
 
 // ─── Socket.io Server ──────────────────────────────────────────────────────
 const io = new SocketIOServer(httpServer, {
-  cors: { origin: '*', methods: ['GET', 'POST'] },
+  cors: { 
+    origin: true, 
+    credentials: true,
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['ngrok-skip-browser-warning']
+  },
   maxHttpBufferSize: 10e6, // 10MB for frame data
   pingTimeout: 30000,
   pingInterval: 10000,
@@ -113,7 +118,7 @@ function scheduleReconnect() {
   }, 5000); // Retry every 5 seconds
 }
 
-function sendFrameToAI(frameBase64, timestamp) {
+function sendFrameToAI(frameBase64, timestamp, source = 'live') {
   return new Promise((resolve) => {
     if (!aiConnected || !aiSocket || aiSocket.readyState !== WebSocket.OPEN) {
       resolve(null);
@@ -132,7 +137,7 @@ function sendFrameToAI(frameBase64, timestamp) {
     });
 
     try {
-      aiSocket.send(JSON.stringify({ frame: frameBase64, timestamp }));
+      aiSocket.send(JSON.stringify({ frame: frameBase64, timestamp, source }));
     } catch (e) {
       clearTimeout(timeout);
       pendingFrameCallbacks.delete(timestamp);
@@ -252,7 +257,7 @@ io.on('connection', (socket) => {
 
   // Handle raw frames from mobile camera node
   socket.on('raw_frame', async (data) => {
-    const { frame, timestamp, location } = data;
+    const { frame, timestamp, location, source } = data;
 
     if (!frame) return;
 
@@ -263,7 +268,7 @@ io.on('connection', (socket) => {
     }
 
     // Forward to AI Engine
-    const aiResponse = await sendFrameToAI(rawBase64, timestamp);
+    const aiResponse = await sendFrameToAI(rawBase64, timestamp, source || 'live');
 
     // Build the frame_stream payload for the SOC Dashboard
     const framePayload = mapAIResponseToFrameStream(aiResponse, frame, timestamp, location);
@@ -308,6 +313,58 @@ io.on('connection', (socket) => {
 });
 
 // ─── REST API ───────────────────────────────────────────────────────────────
+
+// POST /api/frame — Receive frames via standard HTTP (fallback for mobile through proxy)
+app.post('/api/frame', async (req, res) => {
+  const { frame, timestamp, location, source } = req.body;
+  if (!frame) return res.status(400).json({ error: 'Missing frame' });
+
+  // Strip data URL prefix for AI Engine
+  let rawBase64 = frame;
+  if (frame.includes(',')) {
+    rawBase64 = frame.split(',')[1];
+  }
+
+  // Forward to AI Engine
+  const aiResponse = await sendFrameToAI(rawBase64, timestamp, source || 'live');
+
+  // Build the frame_stream payload for the SOC Dashboard
+  const framePayload = mapAIResponseToFrameStream(aiResponse, frame, timestamp, location);
+
+  // Broadcast annotated frame to ALL connected Socket.io clients (SOC dashboards on PC)
+  io.emit('frame_stream', framePayload);
+
+  // Process incidents and create alerts
+  if (aiResponse && aiResponse.incidents && aiResponse.incidents.length > 0) {
+    for (const aiInc of aiResponse.incidents) {
+      const incident = mapAIIncidentToUIIncident(aiInc, location);
+      
+      // Attach snapshot from AI annotated frame
+      if (aiResponse.annotated_frame) {
+        const snapB64 = aiResponse.annotated_frame.startsWith('data:') 
+          ? aiResponse.annotated_frame 
+          : `data:image/jpeg;base64,${aiResponse.annotated_frame}`;
+        incident.snapshots = [{
+          id: `snap-${uuidv4().slice(0, 6)}`,
+          incident_id: incident.id,
+          image_url: snapB64,
+          frame_type: 'detection',
+          created_at: incident.created_at,
+        }];
+      }
+
+      // Attach snapshot filename from AI engine (saved to disk)
+      const aiData = aiInc.data || {};
+      if (aiData.snapshot_filename) {
+        incident.snapshot_filename = aiData.snapshot_filename;
+      }
+      
+      handleIncidentAlert(incident);
+    }
+  }
+
+  res.json({ success: true, timestamp });
+});
 
 // GET /api/incidents — Return all incidents
 app.get('/api/incidents', (req, res) => {

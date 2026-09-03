@@ -15,7 +15,8 @@ import { useRouter } from "next/navigation"
 import { useState, useEffect } from "react"
 import { Incident } from "@/lib/types"
 import { getIncidents } from "@/lib/api"
-import { formatDistanceToNow } from "date-fns"
+import { formatDistanceToNow, format } from "date-fns"
+import { toast } from "sonner"
 
 const navItems = [
   { title: "Command Hub", href: "/dashboard", icon: LayoutDashboard },
@@ -73,15 +74,15 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       {/* Desktop Sidebar */}
       <aside className="hidden w-64 flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 md:flex z-10 shadow-sm">
         {/* Logo */}
-        <div className="flex h-16 items-center border-b border-slate-100 dark:border-slate-800 px-6 gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-orange-600 shadow-sm">
+        <Link href="/" className="flex h-16 items-center border-b border-slate-100 dark:border-slate-800 px-6 gap-3 group cursor-pointer">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-orange-600 shadow-sm group-hover:bg-orange-700 transition-colors">
             <ShieldAlert className="h-5 w-5 text-white" />
           </div>
           <div className="flex flex-col">
-            <span className="font-bold text-sm tracking-widest text-orange-700 dark:text-orange-400">DIVYADRISHTI</span>
+            <span className="font-bold text-sm tracking-widest text-orange-700 dark:text-orange-400 group-hover:text-orange-500 transition-colors">DIVYADRISHTI</span>
             <span className="text-[10px] tracking-widest text-slate-400 dark:text-slate-500 font-mono">NEURAL SOC COMMAND</span>
           </div>
-        </div>
+        </Link>
 
         {/* Nav */}
         <div className="flex-1 overflow-auto py-5 px-3">
@@ -214,9 +215,47 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                   </DropdownMenuLabel>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator className="bg-slate-100 dark:bg-slate-800" />
-                <DropdownMenuItem className="focus:bg-orange-50 dark:focus:bg-orange-500/10 focus:text-orange-700 dark:focus:text-orange-400 cursor-pointer text-slate-600 dark:text-slate-300">Auth Profile</DropdownMenuItem>
-                <DropdownMenuItem className="focus:bg-orange-50 dark:focus:bg-orange-500/10 focus:text-orange-700 dark:focus:text-orange-400 cursor-pointer text-slate-600 dark:text-slate-300">Export Global Logs</DropdownMenuItem>
-                <DropdownMenuItem className="focus:bg-rose-50 dark:focus:bg-rose-500/10 focus:text-rose-600 dark:focus:text-rose-400 cursor-pointer text-rose-600 dark:text-rose-500">Terminate Session</DropdownMenuItem>
+                <DropdownMenuItem
+                  className="focus:bg-orange-50 dark:focus:bg-orange-500/10 focus:text-orange-700 dark:focus:text-orange-400 cursor-pointer text-slate-600 dark:text-slate-300"
+                  onClick={() => router.push('/dashboard/settings')}
+                >
+                  Auth Profile
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="focus:bg-orange-50 dark:focus:bg-orange-500/10 focus:text-orange-700 dark:focus:text-orange-400 cursor-pointer text-slate-600 dark:text-slate-300"
+                  onClick={async () => {
+                    try {
+                      const data = await getIncidents()
+                      if (!data || data.length === 0) { toast.error('No incidents to export.'); return; }
+                      const headers = ['ID','Type','Severity','Status','Camera','Location','Confidence','Score','Created At']
+                      const rows = data.map((i) => [
+                        i.id, i.hazard_type, i.severity_label, i.status,
+                        i.camera?.name || '', i.camera?.location_name || '',
+                        i.confidence, i.severity_score,
+                        format(new Date(i.created_at), 'yyyy-MM-dd HH:mm:ss'),
+                      ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+                      const csv = [headers.join(','), ...rows].join('\n')
+                      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+                      const url = URL.createObjectURL(blob)
+                      const a = document.createElement('a')
+                      a.href = url
+                      a.download = `global_logs_${format(new Date(), 'yyyyMMdd_HHmmss')}.csv`
+                      document.body.appendChild(a)
+                      a.click()
+                      document.body.removeChild(a)
+                      URL.revokeObjectURL(url)
+                      toast.success(`Exported ${data.length} incidents to CSV.`)
+                    } catch { toast.error('Export failed. Backend may be offline.') }
+                  }}
+                >
+                  Export Global Logs
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="focus:bg-rose-50 dark:focus:bg-rose-500/10 focus:text-rose-600 dark:focus:text-rose-400 cursor-pointer text-rose-600 dark:text-rose-500"
+                  onClick={() => router.push('/')}
+                >
+                  Terminate Session
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>

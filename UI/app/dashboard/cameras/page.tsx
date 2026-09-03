@@ -8,9 +8,11 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Camera as CameraIcon, Plus, Video, MapPin, MoreVertical } from "lucide-react"
 import { format } from "date-fns"
+import { useRouter } from "next/navigation"
 
 export default function CamerasPage() {
   const [cameras, setCameras] = useState<Camera[]>([])
+  const router = useRouter()
 
   useEffect(() => {
     getCameras().then(setCameras).catch(console.error)
@@ -82,7 +84,15 @@ export default function CamerasPage() {
                </div>
                
                <div className="grid grid-cols-2 gap-2 mt-5">
-                 <Button variant="outline" size="sm" className="w-full text-xs h-8" disabled={!camera.active}>Live View</Button>
+                 <Button
+                   variant="outline"
+                   size="sm"
+                   className="w-full text-xs h-8"
+                   disabled={!camera.active}
+                   onClick={() => router.push('/testing?mode=live')}
+                 >
+                   Live View
+                 </Button>
                  <Button variant="secondary" size="sm" className="w-full text-xs h-8">History</Button>
                </div>
             </CardContent>

@@ -21,10 +21,14 @@ class WebSocketService {
           options: { transports: ['websocket', 'polling'] },
         };
       } else {
-        // Through ngrok/proxy: connect to current origin, let Next.js rewrites handle routing
+        // Through ngrok/proxy (phone): MUST force polling-only.
+        // Next.js dev server accepts WebSocket upgrades for its own HMR — if we
+        // let Socket.io try WebSocket first, it "connects" to Next.js (not the
+        // backend) and raw_frame events go nowhere.
+        // HTTP polling requests ARE correctly proxied by the /socket.io rewrite → port 8000.
         return {
-          url: '',
-          options: { transports: ['websocket', 'polling'] },
+          url: window.location.origin,
+          options: { transports: ['polling'] },
         };
       }
     }
@@ -42,6 +46,7 @@ class WebSocketService {
   }
 
   connect() {
+    if (typeof window === 'undefined') return;
     if (this.socket?.connected) return;
 
     // Clean up any stale socket
@@ -62,6 +67,7 @@ class WebSocketService {
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1500,
       timeout: 10000,
+      withCredentials: true
     });
 
     this.socket.on('connect', () => {
@@ -114,17 +120,31 @@ class WebSocketService {
 
   private isSendingFrame = false;
 
-  async sendFrame(base64Frame: string, timestamp: number, location?: { lat: number; lng: number }) {
+  async sendFrame(base64Frame: string, timestamp: number, location?: { lat: number; lng: number }, source: 'live' | 'upload' = 'live') {
     if (this.isSendingFrame) return;
 
     this.isSendingFrame = true;
     try {
+      if (typeof window !== 'undefined') {
+        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        
+        // Mobile fallback via HTTP POST for absolute stability through ngrok proxy
+        if (!isLocal) {
+          await fetch('/api/frame', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ frame: base64Frame, timestamp, location, source })
+          }).catch(() => {});
+          return;
+        }
+      }
+
       if (!this.socket?.connected) {
         this.connect();
         await new Promise((r) => setTimeout(r, 500));
       }
       if (this.socket?.connected) {
-        this.socket.emit('raw_frame', { frame: base64Frame, timestamp, location });
+        this.socket.emit('raw_frame', { frame: base64Frame, timestamp, location, source });
       }
     } catch (e) {
       console.error('[WS] sendFrame error:', e);

@@ -118,7 +118,7 @@ function TestingDashboardContent() {
                 <div className="absolute bottom-0 right-0 w-8 h-8 border-b-2 border-r-2 border-primary z-20 pointer-events-none shadow-[0_0_15px_rgba(var(--primary-rgb),0.3)]" />
                 
                 <div className="w-full h-full relative bg-black">
-                  <VideoPlayer file={videoFile} />
+                  <VideoPlayer file={videoFile} isLive={isLive} />
                 </div>
               </div>
             </div>
