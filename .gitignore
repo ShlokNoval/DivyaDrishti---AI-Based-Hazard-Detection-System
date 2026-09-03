@@ -36,3 +36,10 @@ desktop.ini
 .idea/
 *.swp
 *.swo
+
+# AI Datasets & Runs (Ignore heavy raw training datasets)
+AI_Engine/yolo_animal_dataset/
+AI_Engine/runs/
+AI_Engine/dataset/
+*.zip
+*.tar.gz
